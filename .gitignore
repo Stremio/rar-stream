@@ -1,7 +1,5 @@
 .vscode
 
-dist
-
 # Logs
 logs
 *.log
