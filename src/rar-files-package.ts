@@ -12,6 +12,20 @@ import { streamToBuffer } from "./stream-utils.js";
 import { IFileMedia, IParser, IParsers, FindOpts } from "./interfaces.js";
 import { groupBy, mapValues } from "./utils.js";
 
+function flatten(ary: any[]): any[] {
+    let ret: any[] = [];
+
+    for (let i = 0; i < ary.length; i++) {
+        if (Array.isArray(ary[i])) {
+            ret = ret.concat(flatten(ary[i]));
+        } else {
+            ret.push(ary[i]);
+        }
+    }
+
+    return ret;
+}
+
 const parseHeader = async <T extends IParsers>(
   Parser: IParser<T>,
   fileMedia: IFileMedia,
@@ -129,7 +143,7 @@ export class RarFilesPackage extends EventEmitter {
       }
     }
 
-    const fileChunks = parsedFileChunks.flat();
+    const fileChunks = flatten(parsedFileChunks);
 
     const grouped = mapValues(
       groupBy(fileChunks, (f) => f.name),

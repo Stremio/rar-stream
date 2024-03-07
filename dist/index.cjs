@@ -319,7 +319,9 @@ var FileHeaderParser = (_class3 = class {
     }
   }
   parseFileName(parsedVars) {
-    parsedVars.name = this.buffer.subarray(this.offset, this.offset + parsedVars.nameSize).toString("utf-8");
+    let nameBuffer = this.buffer.subarray(this.offset, this.offset + parsedVars.nameSize);
+    nameBuffer = Buffer.isBuffer(nameBuffer) ? nameBuffer : Buffer.from(nameBuffer);
+    parsedVars.name = nameBuffer.toString("utf8");
   }
   parseFlags(parsedVars) {
     return {
@@ -403,6 +405,17 @@ var TerminatorHeaderParser = (_class4 = class {
 }, _class4.__initStatic4(), _class4);
 
 // src/rar-files-package.ts
+function flatten(ary) {
+  let ret = [];
+  for (let i = 0; i < ary.length; i++) {
+    if (Array.isArray(ary[i])) {
+      ret = ret.concat(flatten(ary[i]));
+    } else {
+      ret.push(ary[i]);
+    }
+  }
+  return ret;
+}
 var parseHeader = async (Parser, fileMedia, offset = 0) => {
   const stream = fileMedia.createReadStream({
     start: offset,
@@ -503,7 +516,7 @@ var RarFilesPackage = class extends _events.EventEmitter {
         }
       }
     }
-    const fileChunks = parsedFileChunks.flat();
+    const fileChunks = flatten(parsedFileChunks);
     const grouped = mapValues(
       groupBy(fileChunks, (f) => f.name),
       (value) => value.map((v) => v.chunk)
