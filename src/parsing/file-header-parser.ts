@@ -45,9 +45,7 @@ export class FileHeaderParser {
     }
   }
   private parseFileName(parsedVars: IFileHeaderRaw) {
-    parsedVars.name = this.buffer
-      .subarray(this.offset, this.offset + parsedVars.nameSize)
-      .toString("utf-8");
+    parsedVars.name = Buffer.from(this.buffer.subarray(this.offset, this.offset + parsedVars.nameSize)).toString("utf8");
   }
   private parseFlags(parsedVars: IFileHeaderRaw): IFileHeaderFlags {
     return {
