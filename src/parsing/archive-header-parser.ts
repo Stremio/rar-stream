@@ -33,6 +33,6 @@ export class ArchiveHeaderParser {
 
     let vars = { crc, type, flags, size, reserved1, reserved2 };
 
-    return { ...parseFlags(vars), ...vars };
+    return Object.assign(parseFlags(vars), vars);
   }
 }
