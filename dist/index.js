@@ -408,6 +408,379 @@ var TerminatorHeaderParser = class {
   }
 };
 
+// src/parsing-rar5/rawread.js
+var RawRead = class _RawRead {
+  // rarFile must be an instance of File
+  constructor(rarFile) {
+    this.srcFile = rarFile;
+    this.Data = Buffer.alloc(0);
+    this.ReadPos = 0;
+  }
+  reset() {
+    this.Data.fill(null);
+    this.ReadPos = 0;
+  }
+  async Read(size) {
+    this.Data = Buffer.concat([this.Data, await this.srcFile.read(size)]);
+    return this.Data.length;
+  }
+  getPos() {
+    return this.ReadPos;
+  }
+  SetPos(Pos) {
+    this.ReadPos = Pos;
+  }
+  Skip(Size) {
+    this.ReadPos += Size;
+  }
+  Size() {
+    return this.Data.length;
+  }
+  DataLeft() {
+    return this.Data.length - this.ReadPos;
+  }
+  getBytes(length) {
+    const start = this.ReadPos;
+    const end = this.ReadPos + length;
+    this.ReadPos += length;
+    return Uint8Array.prototype.slice.call(this.Data, start, end);
+  }
+  // Up to 6 bytes
+  _getInteger(bytes) {
+    if (this.ReadPos + bytes >= this.Data.length) {
+      return 0;
+    }
+    const Result = this.Data.readUIntLE(this.ReadPos, bytes);
+    this.ReadPos += bytes;
+    return Result;
+  }
+  getByte() {
+    return this.ReadPos < this.Data.length ? this.Data[this.ReadPos++] : 0;
+  }
+  getWord() {
+    return this._getInteger(2);
+  }
+  getDword() {
+    return this._getInteger(4);
+  }
+  // Returns a BigInt
+  getQword() {
+    const low = BigInt(this.getDword());
+    const high = BigInt(this.getDword());
+    return low + (high << 32n);
+  }
+  getVarInt() {
+    let Result = 0n;
+    for (let Shift = 0n; this.ReadPos < this.Data.length && Shift < 64n; Shift += 7n) {
+      const Byte = BigInt(this.Data[this.ReadPos++]);
+      Result += (Byte & 0x7Fn) << Shift;
+      if ((Byte & 0x80n) == 0n)
+        break;
+    }
+    return Number(Result);
+  }
+  GetCRC50() {
+    return _RawRead.CRC32(Uint8Array.prototype.slice.call(this.Data, 4));
+  }
+  static _CRC_table = new Uint32Array(256).map((_, c) => {
+    for (let i = 0; i < 8; i++) {
+      c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+    }
+    return c;
+  });
+  static CRC32(chunk) {
+    var crc = 4294967295;
+    for (var i = 0, iTop = chunk.length; i < iTop; i++) {
+      crc = crc >>> 8 ^ _RawRead._CRC_table[(crc ^ chunk[i]) & 255];
+    }
+    return (crc ^ -1) >>> 0;
+  }
+};
+
+// src/parsing-rar5/rar5.js
+var SIZEOF_SHORTBLOCKHEAD5 = 7;
+var HEADER_TYPE = Object.freeze({
+  // RAR 5.0 header types.
+  HEAD_MAIN: 1,
+  HEAD_FILE: 2,
+  HEAD_SERVICE: 3,
+  HEAD_CRYPT: 4,
+  HEAD_ENDARC: 5
+});
+var HOST_SYSTEM = Object.freeze({
+  // RAR 5.0 host OS
+  HOST5_WINDOWS: 0,
+  HOST5_UNIX: 1
+});
+var HOST_SYSTEM_TYPE = Object.freeze({
+  HSYS_WINDOWS: 0,
+  HSYS_UNIX: 1,
+  HSYS_UNKNOWN: 2
+});
+var HFL_EXTRA = 1;
+var HFL_DATA = 2;
+var HFL_SKIPIFUNKNOWN = 4;
+var HFL_SPLITBEFORE = 8;
+var HFL_SPLITAFTER = 16;
+var HFL_CHILD = 32;
+var HFL_INHERITED = 64;
+var MHFL_VOLNUMBER = 2;
+var FHFL_DIRECTORY = 1;
+var FHFL_UTIME = 2;
+var FHFL_CRC32 = 4;
+var FHFL_UNPUNKNOWN = 8;
+var UNPACK_MAX_DICT = 68719476736;
+var VER_PACK5 = 50;
+var VER_PACK7 = 70;
+var VER_UNKNOWN = 9999;
+var FCI_RAR5_COMPAT = 1048576;
+var EHFL_NEXTVOLUME = 1;
+var BaseBlock = class {
+  reset() {
+    this.headerType = 0;
+    this.HeadCRC = 0;
+    this.Flags = 0;
+    this.HeadSize = 0;
+    this.SkipIfUnknow = false;
+    this.ExtraSize = 0;
+    this.DataSize = 0;
+    this.VolNumber = 0;
+    this.locator = false;
+    this.qopenOffset = 0;
+    this.LargeFile = false;
+    this.PackSize = 0;
+    this.FileFlags = 0;
+    this.UnpSize = 0;
+    this.UnknownUnpSize = false;
+    this.MaxSize = 0;
+    this.FileAttr = 0;
+    this.FileHash = { type: null, CRC32: 0 };
+    this.Method = 0;
+    this.UnpVer = 0;
+    this.HostOS = 0;
+    this.Inherited = false;
+    this.HSType = null;
+    this.SplitBefore = false;
+    this.SplitAfter = false;
+    this.SubBlock = false;
+    this.Dir = false;
+    this.WinSize = 0;
+    this.Name = "";
+    this.mtime = null;
+    this.ctime = null;
+    this.atime = null;
+    this.NextVolume = false;
+  }
+  headerType = 0;
+  HeadCRC = 0;
+  Flags = 0;
+  HeadSize = 0;
+  SkipIfUnknow = false;
+  ExtraSize = 0;
+  DataSize = 0;
+  VolNumber = 0;
+  locator = false;
+  qopenOffset = 0;
+  LargeFile = false;
+  PackSize = 0;
+  FileFlags = 0;
+  UnpSize = 0;
+  UnknownUnpSize = false;
+  MaxSize = 0;
+  FileAttr = 0;
+  FileHash = { type: null, CRC32: 0 };
+  Method = 0;
+  UnpVer = 0;
+  HostOS = 0;
+  Inherited = false;
+  HSType = null;
+  SplitBefore = false;
+  SplitAfter = false;
+  SubBlock = false;
+  Dir = false;
+  WinSize = 0;
+  Name = "";
+  mtime = null;
+  ctime = null;
+  atime = null;
+  NextVolume = false;
+};
+var AcRead = class {
+  constructor(readable) {
+    this.shortBlock = new BaseBlock();
+    this.file = readable;
+  }
+  ReadPos = 0;
+  CurBlockPos = 0;
+  NextBlockPos = 0;
+  // Borrowed from https://stackoverflow.com/a/46024468/1205681
+  static UNIX_TIME_START = 0x019DB1DED53E8000n;
+  //January 1, 1970 (start of Unix epoch) in "ticks"
+  static TICKS_PER_SECOND = 10000n;
+  //a tick is 100ns
+  async readHeader50(onlySize) {
+    const Raw = new RawRead(this.file);
+    const FirstReadSize = 7;
+    if (await Raw.Read(FirstReadSize) < FirstReadSize) {
+      console.log("Failed to read the first block header");
+      return 0;
+    }
+    this.shortBlock.reset();
+    this.shortBlock.HeadCRC = Raw.getDword();
+    let SizeBytes = Raw.ReadPos;
+    const BlockSize = Raw.getVarInt();
+    SizeBytes = Raw.ReadPos - SizeBytes;
+    if (BlockSize == 0 || SizeBytes == 0) {
+      console.log("Block size is 0");
+      return 0;
+    }
+    const SizeToRead = BlockSize - (FirstReadSize - SizeBytes - 4);
+    const HeaderSize = 4 + SizeBytes + BlockSize;
+    if (onlySize)
+      return HeaderSize;
+    if (SizeToRead < 0 || HeaderSize < SIZEOF_SHORTBLOCKHEAD5) {
+      console.log("Invalid block size or header size");
+      return 0;
+    }
+    await Raw.Read(SizeToRead);
+    if (Raw.Size() < HeaderSize) {
+      console.log("Failed to read the entire block header");
+      return 0;
+    }
+    const HeaderCRC = Raw.GetCRC50();
+    const NextPos = Raw.ReadPos + BlockSize;
+    this.shortBlock.headerType = Raw.getVarInt();
+    this.shortBlock.Flags = Raw.getVarInt();
+    this.shortBlock.SkipIfUnknow = (this.shortBlock.Flags & HFL_SKIPIFUNKNOWN) != 0;
+    this.shortBlock.HeadSize = HeaderSize;
+    this.CurHeaderType = this.shortBlock.headerType;
+    const BadCRC = this.shortBlock.HeadCRC != HeaderCRC;
+    if (BadCRC) {
+      console.log("Bad CRC");
+    }
+    this.shortBlock.ExtraSize = (this.shortBlock.Flags & HFL_EXTRA) != 0 ? Raw.getVarInt() : 0;
+    if (this.shortBlock.ExtraSize >= this.shortBlock.HeadSize) {
+      console.log("Extra size is too large");
+      return 0;
+    }
+    this.shortBlock.DataSize = (this.shortBlock.Flags & HFL_DATA) != 0 ? Raw.getVarInt() : 0;
+    this.NextBlockPos = this.CurBlockPos + this.shortBlock.HeadSize + this.shortBlock.DataSize || 0;
+    switch (this.shortBlock.headerType) {
+      case HEADER_TYPE.HEAD_CRYPT: {
+        console.log("Crypt header");
+        break;
+      }
+      case HEADER_TYPE.HEAD_MAIN: {
+        const ArcFlags2 = Raw.getVarInt();
+        this.shortBlock.VolNumber = (ArcFlags2 & MHFL_VOLNUMBER) != 0 ? Raw.getVarInt() : 0;
+        break;
+      }
+      case HEADER_TYPE.HEAD_FILE:
+      case HEADER_TYPE.HEAD_SERVICE: {
+        const FileBlock = this.shortBlock.headerType == HEADER_TYPE.HEAD_FILE;
+        this.shortBlock.LargeFile = true;
+        this.shortBlock.PackSize = this.shortBlock.DataSize;
+        this.shortBlock.FileFlags = Raw.getVarInt();
+        this.shortBlock.UnpSize = Raw.getVarInt();
+        this.shortBlock.UnknownUnpSize = (this.shortBlock.FileFlags & FHFL_UNPUNKNOWN) != 0;
+        if (this.shortBlock.UnknownUnpSize) {
+          this.shortBlock.UnpSize = Infinity;
+        }
+        this.shortBlock.MaxSize = Math.max(this.shortBlock.UnpSize, this.shortBlock.PackSize);
+        this.shortBlock.FileAttr = Raw.getVarInt();
+        if ((this.shortBlock.FileFlags & FHFL_UTIME) != 0)
+          this.shortBlock.mtime = new Date(Raw.getDword() * 1e3);
+        this.shortBlock.FileHash = {
+          type: null,
+          CRC32: null
+        };
+        if ((this.shortBlock.FileFlags & FHFL_CRC32) != 0) {
+          this.shortBlock.FileHash.type = "crc32";
+          this.shortBlock.FileHash.CRC32 = Raw.getDword();
+        }
+        const CompInfo = Raw.getVarInt();
+        this.shortBlock.Method = CompInfo >> 7 & 7;
+        const UnpVer = CompInfo & 63;
+        if (UnpVer == 0) {
+          this.shortBlock.UnpVer = VER_PACK5;
+        } else if (UnpVer == 1) {
+          this.shortBlock.UnpVer = VER_PACK7;
+        } else {
+          this.shortBlock.UnpVer = VER_UNKNOWN;
+        }
+        this.shortBlock.HostOS = Raw.getVarInt();
+        const NameSize = Raw.getVarInt();
+        this.shortBlock.Inherited = (this.shortBlock.Flags & HFL_INHERITED) != 0;
+        this.shortBlock.HSType = HOST_SYSTEM_TYPE.HSYS_UNKNOWN;
+        if (this.shortBlock.HostOS == HOST_SYSTEM.HOST5_UNIX) {
+          this.shortBlock.HSType = HOST_SYSTEM.HSYS_UNIX;
+        } else if (this.shortBlock.HostOS == HOST_SYSTEM.HOST5_WINDOWS) {
+          this.shortBlock.HSType = HOST_SYSTEM_TYPE.HSYS_WINDOWS;
+        }
+        this.shortBlock.SplitBefore = (this.shortBlock.Flags & HFL_SPLITBEFORE) != 0;
+        this.shortBlock.SplitAfter = (this.shortBlock.Flags & HFL_SPLITAFTER) != 0;
+        this.shortBlock.SubBlock = (this.shortBlock.Flags & HFL_CHILD) != 0;
+        this.shortBlock.Dir = (this.shortBlock.FileFlags & FHFL_DIRECTORY) != 0;
+        if (this.shortBlock.Dir || UnpVer > 1) {
+          this.shortBlock.WinSize = 0;
+        } else {
+          this.shortBlock.WinSize = 131072 << (CompInfo >> 10 & (UnpVer == 0 ? 15 : 31));
+          if (UnpVer == 1) {
+            this.shortBlock.WinSize += this.shortBlock.WinSize / 32 * (CompInfo >> 15 & 31);
+            if ((CompInfo & FCI_RAR5_COMPAT) != 0)
+              this.shortBlock.UnpVer = VER_PACK5;
+            if (this.shortBlock.WinSize > UNPACK_MAX_DICT)
+              this.shortBlock.UnpVer = VER_UNKNOWN;
+          }
+        }
+        this.shortBlock.Name = Raw.getBytes(NameSize).toString();
+        break;
+      }
+      case HEADER_TYPE.HEAD_ENDARC:
+        const ArcFlags = Raw.getVarInt();
+        this.shortBlock.NextVolume = (ArcFlags & EHFL_NEXTVOLUME) != 0;
+        break;
+      default:
+        console.log("Unknown header", this.shortBlock.headerType.toString(16), "at offset", this.ReadPos.toString(16));
+        break;
+    }
+    return {
+      crc: this.shortBlock.HeadCRC,
+      type: this.shortBlock.headerType,
+      flags: this.shortBlock.Flags,
+      headSize: this.shortBlock.HeadSize,
+      size: this.shortBlock.DataSize,
+      unpackedSize: this.shortBlock.UnpSize,
+      host: this.shortBlock.HostOS,
+      fileCrc: this.shortBlock.FileHash.CRC32,
+      timestamp: 0,
+      version: this.shortBlock.UnpVer,
+      method: this.shortBlock.Method,
+      nameSize: 0,
+      attributes: this.shortBlock.FileAttr,
+      name: this.shortBlock.Name,
+      continuesFromPrevious: false,
+      continuesInNext: this.shortBlock.Flags === 27 || this.shortBlock.Flags === 26,
+      isEncrypted: false,
+      hasComment: false,
+      hasInfoFromPrevious: false,
+      hasHighSize: false,
+      hasSpecialName: false,
+      hasSalt: false,
+      isOldVersion: false,
+      hasExtendedTime: false
+    };
+  }
+};
+function readHeaderSize50(readable) {
+  const rar = new AcRead(readable);
+  return rar.readHeader50(true);
+}
+function readHeader50(readable) {
+  const rar = new AcRead(readable);
+  return rar.readHeader50();
+}
+
 // src/rar-files-package.ts
 var parseHeader = async (Parser, fileMedia, offset = 0) => {
   const stream = await fileMedia.createReadStream({
@@ -427,53 +800,123 @@ var RarFilesPackage = class extends EventEmitter {
   async parseFile(rarFile, opts) {
     const fileChunks = [];
     let fileOffset = 0;
-    const markerHead = await parseHeader(MarkerHeaderParser, rarFile);
-    fileOffset += markerHead.size;
-    const archiveHeader = await parseHeader(
-      ArchiveHeaderParser,
-      rarFile,
-      fileOffset
-    );
-    fileOffset += archiveHeader.size;
-    let countFiles = 0;
-    let retrievedFiles = 0;
-    while (fileOffset < rarFile.length - TerminatorHeaderParser.HEADER_SIZE) {
-      let getFileChunk2 = function() {
-        if (fileHead.method !== 48) {
-          throw new Error("Decompression is not implemented");
+    const stream = await rarFile.createReadStream({
+      start: 0,
+      end: 6
+    });
+    const headerBuffer = await streamToBuffer(stream);
+    if (headerBuffer.equals(Buffer.from([82, 97, 114, 33, 26, 7, 1]))) {
+      fileOffset += 8;
+      let headSizeOffset = fileOffset;
+      const markerHeaderSize = await readHeaderSize50({
+        read: async (size) => {
+          const readable = await rarFile.createReadStream({
+            start: headSizeOffset,
+            end: headSizeOffset + size - 1
+          });
+          headSizeOffset += size;
+          return streamToBuffer(readable);
         }
-        return {
-          name: fileHead.name,
-          fileHead,
-          chunk: new RarFileChunk(
-            rarFile,
-            fileOffset,
-            fileOffset + fileHead.size - 1
-          )
-        };
-      };
-      var getFileChunk = getFileChunk2;
-      const fileHead = await parseHeader(FileHeaderParser, rarFile, fileOffset);
-      if (fileHead.type !== 116) {
-        break;
-      }
-      fileOffset += fileHead.headSize;
-      if (opts.filter) {
-        if (opts.filter(fileHead.name, countFiles)) {
-          fileChunks.push(getFileChunk2());
-          retrievedFiles++;
-          if (opts.hasOwnProperty("maxFiles") && retrievedFiles === opts.maxFiles) {
-            break;
+      });
+      fileOffset += markerHeaderSize;
+      let countFiles = 0;
+      let retrievedFiles = 0;
+      while (fileOffset < rarFile.length - TerminatorHeaderParser.HEADER_SIZE) {
+        let getFileChunk2 = function() {
+          if (fileHead.method !== 0) {
+            throw new Error("Decompression is not implemented");
           }
+          return {
+            name: fileHead.name,
+            fileHead,
+            chunk: new RarFileChunk(
+              rarFile,
+              fileOffset,
+              fileOffset + fileHead.size - 1
+            )
+          };
+        };
+        var getFileChunk = getFileChunk2;
+        let fileHeadOffset = fileOffset;
+        const fileHead = await readHeader50({
+          read: async (size) => {
+            const readable = await rarFile.createReadStream({
+              start: fileHeadOffset,
+              end: fileHeadOffset + size - 1
+            });
+            fileHeadOffset += size;
+            return streamToBuffer(readable);
+          }
+        });
+        if (fileHead.type !== 2) {
+          break;
         }
-      } else {
-        fileChunks.push(getFileChunk2());
+        fileOffset += fileHead.headSize;
+        if (opts.filter) {
+          if (opts.filter(fileHead.name, countFiles)) {
+            fileChunks.push(getFileChunk2());
+            retrievedFiles++;
+            if (opts.hasOwnProperty("maxFiles") && retrievedFiles === opts.maxFiles) {
+              break;
+            }
+          }
+        } else {
+          fileChunks.push(getFileChunk2());
+        }
+        fileOffset += fileHead.size;
+        countFiles++;
       }
-      fileOffset += fileHead.size;
-      countFiles++;
+      this.emit("file-parsed", rarFile);
+      return fileChunks;
+    } else {
+      const markerHead = await parseHeader(MarkerHeaderParser, rarFile);
+      fileOffset += markerHead.size;
+      const archiveHeader = await parseHeader(
+        ArchiveHeaderParser,
+        rarFile,
+        fileOffset
+      );
+      fileOffset += archiveHeader.size;
+      let countFiles = 0;
+      let retrievedFiles = 0;
+      while (fileOffset < rarFile.length - TerminatorHeaderParser.HEADER_SIZE) {
+        let getFileChunk2 = function() {
+          if (fileHead.method !== 48) {
+            throw new Error("Decompression is not implemented");
+          }
+          return {
+            name: fileHead.name,
+            fileHead,
+            chunk: new RarFileChunk(
+              rarFile,
+              fileOffset,
+              fileOffset + fileHead.size - 1
+            )
+          };
+        };
+        var getFileChunk = getFileChunk2;
+        const fileHead = await parseHeader(FileHeaderParser, rarFile, fileOffset);
+        if (fileHead.type !== 116) {
+          break;
+        }
+        fileOffset += fileHead.headSize;
+        if (opts.filter) {
+          if (opts.filter(fileHead.name, countFiles)) {
+            fileChunks.push(getFileChunk2());
+            retrievedFiles++;
+            if (opts.hasOwnProperty("maxFiles") && retrievedFiles === opts.maxFiles) {
+              break;
+            }
+          }
+        } else {
+          fileChunks.push(getFileChunk2());
+        }
+        fileOffset += fileHead.size;
+        countFiles++;
+      }
+      this.emit("file-parsed", rarFile);
+      return fileChunks;
     }
-    this.emit("file-parsed", rarFile);
-    return fileChunks;
   }
   async parse(opts) {
     opts = opts || {};
