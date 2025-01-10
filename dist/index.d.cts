@@ -35,7 +35,7 @@ type IFileHeader = IFileHeaderRaw & IFileHeaderFlags;
 interface IFileMedia {
     length: number;
     name: string;
-    createReadStream(opts?: IReadInterval): NodeJS.ReadableStream;
+    createReadStream(opts?: IReadInterval): Promise<NodeJS.ReadableStream> | NodeJS.ReadableStream;
 }
 interface IReadInterval {
     start: number;
@@ -74,7 +74,7 @@ declare class RarFileChunk {
     padEnd(endPadding: number): RarFileChunk;
     padStart(startPadding: number): RarFileChunk;
     get length(): number;
-    getStream(): NodeJS.ReadableStream;
+    getStream(): NodeJS.ReadableStream | Promise<NodeJS.ReadableStream>;
 }
 
 declare class InnerFileStream extends Readable {
@@ -83,7 +83,7 @@ declare class InnerFileStream extends Readable {
     constructor(rarFileChunks: RarFileChunk[], options?: ReadableOptions);
     pushData(data: Uint16Array): void;
     get isStarted(): boolean;
-    next(): void;
+    next(): Promise<void>;
     _read(): void;
 }
 
@@ -101,7 +101,7 @@ declare class InnerFile implements IFileMedia {
     constructor(name: string, rarFileChunks: RarFileChunk[]);
     readToEnd(): Promise<Buffer>;
     getChunksToStream(fileStart: number, fileEnd: number): RarFileChunk[];
-    createReadStream(interval: IReadInterval): InnerFileStream;
+    createReadStream(interval: IReadInterval): Promise<InnerFileStream>;
     calculateChunkMap(rarFileChunks: RarFileChunk[]): ChunkMapEntry[];
     findMappedChunk(offset: number): ChunkMapEntry;
 }
@@ -125,7 +125,7 @@ declare class LocalFileMedia implements IFileMedia {
     name: string;
     length: number;
     constructor(path: string);
-    createReadStream(interval: IReadInterval): fs.ReadStream;
+    createReadStream(interval: IReadInterval): Promise<fs.ReadStream>;
 }
 
 export { LocalFileMedia, RarFilesPackage };

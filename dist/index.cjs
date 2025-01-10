@@ -4,7 +4,7 @@ var _events = require('events');
 // src/rar-file-bundle.ts
 var RXX_EXTENSION = /\.R(\d\d)$|.RAR$/i;
 var RAR_EXTENSION = /.RAR$/i;
-var PARTXX_RAR_EXTENSION = /.PART(\d\d).RAR/i;
+var PARTXX_RAR_EXTENSION = /.PART(\d\d?\d?).RAR/i;
 var isPartXXExtension = (fileMedias = []) => {
   let anyPartXXTypes = fileMedias.filter(
     (file) => file.name && file.name.match(PARTXX_RAR_EXTENSION)
@@ -137,12 +137,12 @@ var InnerFileStream = class extends _stream.Readable {
   get isStarted() {
     return !!this.stream;
   }
-  next() {
+  async next() {
     const chunk = this.rarFileChunks.shift();
     if (!chunk) {
       this.push(null);
     } else {
-      this.stream = chunk.getStream();
+      this.stream = await chunk.getStream();
       _optionalChain([this, 'access', _4 => _4.stream, 'optionalAccess', _5 => _5.on, 'call', _6 => _6("data", (data) => this.pushData(data))]);
       _optionalChain([this, 'access', _7 => _7.stream, 'optionalAccess', _8 => _8.on, 'call', _9 => _9("end", () => this.next())]);
     }
@@ -193,10 +193,9 @@ var InnerFile = class {
   }
   
   
-  readToEnd() {
-    return streamToBuffer(
-      this.createReadStream({ start: 0, end: this.length - 1 })
-    );
+  async readToEnd() {
+    const stream = await this.createReadStream({ start: 0, end: this.length - 1 });
+    return streamToBuffer(stream);
   }
   getChunksToStream(fileStart, fileEnd) {
     const { index: startIndex, start: startOffset } = this.findMappedChunk(fileStart);
@@ -224,7 +223,9 @@ var InnerFile = class {
     if (start < 0 || end >= this.length) {
       throw Error("Illegal start/end offset");
     }
-    return new InnerFileStream(this.getChunksToStream(start, end));
+    return Promise.resolve(
+      new InnerFileStream(this.getChunksToStream(start, end))
+    );
   }
   calculateChunkMap(rarFileChunks) {
     const chunkMap = [];
@@ -324,8 +325,7 @@ var FileHeaderParser = (_class3 = class {
     }
   }
   parseFileName(parsedVars) {
-    let nameBuffer = subarray(this.buffer, this.offset, this.offset + parsedVars.nameSize);
-    parsedVars.name = nameBuffer.toString("utf8");
+    parsedVars.name = subarray(this.buffer, this.offset, this.offset + parsedVars.nameSize).toString("utf8");
   }
   parseFlags(parsedVars) {
     return {
@@ -410,7 +410,7 @@ var TerminatorHeaderParser = (_class4 = class {
 
 // src/rar-files-package.ts
 var parseHeader = async (Parser, fileMedia, offset = 0) => {
-  const stream = fileMedia.createReadStream({
+  const stream = await fileMedia.createReadStream({
     start: offset,
     end: offset + Parser.HEADER_SIZE
   });
@@ -534,7 +534,9 @@ var LocalFileMedia = class {
   
   
   createReadStream(interval) {
-    return _fs.createReadStream.call(void 0, this.path, interval);
+    return Promise.resolve(
+      _fs.createReadStream.call(void 0, this.path, interval)
+    );
   }
 };
 
