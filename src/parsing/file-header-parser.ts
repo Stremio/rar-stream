@@ -28,6 +28,13 @@ interface IFileHeaderRaw {
   name: string;
 }
 
+const nodeMajorVersion = parseInt((((process || {}).version || '').split('.')[0] || '').substring(1))
+
+function subarray(buff: Buffer, start: number, end: number) {
+  const method = nodeMajorVersion < 16 ? 'slice' : 'subarray'
+  return buff[method](start, end)
+}
+
 export type IFileHeader = IFileHeaderRaw & IFileHeaderFlags;
 export class FileHeaderParser {
   static HEADER_SIZE = 280;
@@ -45,8 +52,7 @@ export class FileHeaderParser {
     }
   }
   private parseFileName(parsedVars: IFileHeaderRaw) {
-    let nameBuffer = this.buffer.subarray(this.offset, this.offset + parsedVars.nameSize);
-    nameBuffer = Buffer.isBuffer(nameBuffer) ? nameBuffer : Buffer.from(nameBuffer);
+    let nameBuffer = subarray(this.buffer, this.offset, this.offset + parsedVars.nameSize);
     parsedVars.name = nameBuffer.toString("utf8");
   }
   private parseFlags(parsedVars: IFileHeaderRaw): IFileHeaderFlags {
