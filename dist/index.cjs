@@ -170,7 +170,7 @@ function groupBy(arr, fn) {
     const groupKey = fn(curr);
     const group = prev[groupKey] || [];
     group.push(curr);
-    return Object.assign(prev, { [groupKey]: group });
+    return { ...prev, [groupKey]: group };
   }, {});
 }
 function sum(arr) {
@@ -297,11 +297,16 @@ var ArchiveHeaderParser = (_class2 = class {
     const reserved1 = this.buffer.readUInt16LE(7);
     const reserved2 = this.buffer.readUInt32LE(9);
     let vars = { crc, type, flags, size, reserved1, reserved2 };
-    return Object.assign(parseFlags(vars), vars);
+    return { ...parseFlags(vars), ...vars };
   }
 }, _class2.__initStatic2(), _class2);
 
 // src/parsing/file-header-parser.ts
+var nodeMajorVersion = parseInt((((process || {}).version || "").split(".")[0] || "").substring(1));
+function subarray(buff, start, end) {
+  const method = nodeMajorVersion < 16 ? "slice" : "subarray";
+  return buff[method](start, end);
+}
 var FileHeaderParser = (_class3 = class {
   constructor(buffer) {;_class3.prototype.__init.call(this);
     this.buffer = buffer;
@@ -319,8 +324,7 @@ var FileHeaderParser = (_class3 = class {
     }
   }
   parseFileName(parsedVars) {
-    let nameBuffer = this.buffer.subarray(this.offset, this.offset + parsedVars.nameSize);
-    nameBuffer = Buffer.isBuffer(nameBuffer) ? nameBuffer : Buffer.from(nameBuffer);
+    let nameBuffer = subarray(this.buffer, this.offset, this.offset + parsedVars.nameSize);
     parsedVars.name = nameBuffer.toString("utf8");
   }
   parseFlags(parsedVars) {
@@ -381,7 +385,7 @@ var FileHeaderParser = (_class3 = class {
       name: ""
     };
     const boolFlags = this.parseFlags(vars);
-    const header = Object.assign(vars, boolFlags);
+    const header = { ...vars, ...boolFlags };
     this.handleHighFileSize(header);
     this.parseFileName(header);
     this.offset = 0;
@@ -405,17 +409,6 @@ var TerminatorHeaderParser = (_class4 = class {
 }, _class4.__initStatic4(), _class4);
 
 // src/rar-files-package.ts
-function flatten(ary) {
-  let ret = [];
-  for (let i = 0; i < ary.length; i++) {
-    if (Array.isArray(ary[i])) {
-      ret = ret.concat(flatten(ary[i]));
-    } else {
-      ret.push(ary[i]);
-    }
-  }
-  return ret;
-}
 var parseHeader = async (Parser, fileMedia, offset = 0) => {
   const stream = fileMedia.createReadStream({
     start: offset,
@@ -516,7 +509,7 @@ var RarFilesPackage = class extends _events.EventEmitter {
         }
       }
     }
-    const fileChunks = flatten(parsedFileChunks);
+    const fileChunks = parsedFileChunks.flat();
     const grouped = mapValues(
       groupBy(fileChunks, (f) => f.name),
       (value) => value.map((v) => v.chunk)
