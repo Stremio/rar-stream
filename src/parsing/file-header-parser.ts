@@ -127,7 +127,7 @@ export class FileHeaderParser {
     };
 
     const boolFlags = this.parseFlags(vars);
-    const header = Object.assign(vars, boolFlags);
+    const header = { ...vars, ...boolFlags };
     this.handleHighFileSize(header);
     this.parseFileName(header);
     this.offset = 0;
