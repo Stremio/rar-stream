@@ -30,9 +30,8 @@ const rarFilesPackage = new RarFilesPackage(localRarFiles);
 async function writeInnerRarFilesToDisk() {
   const innerFiles = await rarFilesPackage.parse();
   for (const innerFile of innerFiles) {
-    innerFile
-      .createReadStream({ start: 0, end: innerFile.length - 1 })
-      .pipe(fs.createWriteStream(innerFile.name));
+    const stream = await innerFile.createReadStream({ start: 0, end: innerFile.length - 1 })
+    stream.pipe(fs.createWriteStream(innerFile.name));
   }
 }
 
@@ -87,11 +86,10 @@ The parser will stop processing the file list once it reaches the `maxFiles` lim
 
 #### Events:
 
-| Event            | Description                                                                                                                                               |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| parsing-start    | Emitted when the parsing is started, happens when you call `parse`. Event args are a bundle represntation of all the rar files passed to the constructor. |
-| file-parsed      | Emitted each time a rar file is parsed. The event argument is the RarFile just parsed, i.e `.rxx` in the chain.                                           |
-| parsing-complete | Emitted when the parsing is completed. The event argument is an array of all the parsed [`InnerFile`](#innerfile-api)s.                                   |
+| Method                                         | Description                                                                          |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------ |
+| createReadStream({start: number, end: number}) | Returns a Promise with a `Readable` stream. The start and end interval is inclusive. |
+| readToEnd                                      | Returns a Promise with a Buffer containing all the content of the file.              |
 
 #### Example
 
@@ -125,7 +123,7 @@ Implements the [`FileMedia`](#filemedia-interface) interface.
 
 ```
 const innerFiles = await rarStreamPackage.parse();
-const innerFileStream = innerFiles[0].createReadStream({ start: 0, end: 30});
+const innerFileStream = await innerFiles[0].createReadStream({ start: 0, end: 30});
 ```
 
 ### _FileMedia Interface_
@@ -137,7 +135,7 @@ Should have the following shape:
 ```javascript
  // FileMedia
  {
-  createReadStream(interval: Interval): Readable,
+  createReadStream(interval: Interval): Promise<Readable>,
   name: string,
   length: number // Length or size of the file in bytes
  }
