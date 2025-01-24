@@ -1,7 +1,5 @@
 .vscode
 
-dist
-
 # Logs
 logs
 *.log
@@ -39,4 +37,3 @@ node_modules
 
 wallaby.config.js
 
-dist/
