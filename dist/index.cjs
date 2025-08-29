@@ -2,9 +2,9 @@
 var _events = require('events');
 
 // src/rar-file-bundle.ts
-var RXX_EXTENSION = /\.R(\d\d)$|.RAR$/i;
+var RXX_EXTENSION = /\.R(\d\d?\d?\d?\d?\d?)$|\.RAR$/i;
 var RAR_EXTENSION = /.RAR$/i;
-var PARTXX_RAR_EXTENSION = /.PART(\d\d).RAR/i;
+var PARTXX_RAR_EXTENSION = /\.PART(\d\d?\d?\d?\d?)\.RAR$/i;
 var isPartXXExtension = (fileMedias = []) => {
   let anyPartXXTypes = fileMedias.filter(
     (file) => file.name && file.name.match(PARTXX_RAR_EXTENSION)
